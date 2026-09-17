@@ -11,6 +11,7 @@
  */
 import { VideoBody } from './VideoBody.tsx'
 import { en, zh } from './locales.ts'
+import { VIDEO_EXTENSIONS } from './suffix.ts'
 import type { ClientContext, DocumentPreviewDefinition } from './contract.ts'
 
 /** Services this plugin cannot run without. */
@@ -19,17 +20,17 @@ export const inject = ['documentPreviews', 'slots', 'locale']
 /** This implementation's identity, shared by its metadata and its slot cell. */
 export const VIDEO_BODY_ID = 'dsh-video-preview/video'
 
-/** Container suffixes the browser's own decoder plays from a Blob URL. */
-export const VIDEO_EXTENSIONS = ['mp4', 'm4v', 'mov', 'webm', 'ogv'] as const
-
 /** Locale namespace carrying this renderer's labels. */
 export const VIDEO_LOCALE_NAMESPACE = 'sidebarVideo'
 
 /**
  * Describe the video renderer independently of its keyed body slot.
- * Every suffix is binary: a player decodes container bytes, never text.
+ *
+ * The renderer streams through the Host file route, so it declares `url`: the
+ * preview owner reads nothing, and a produced file stays playable however large
+ * it grows. Every suffix is binary, and a player decodes the container itself.
  * @param title - locale-owned implementation name.
- * @returns metadata for complete video files.
+ * @returns metadata for playable video files.
  */
 export function videoBodyDefinition(title: () => string): DocumentPreviewDefinition {
   return {
@@ -38,7 +39,7 @@ export function videoBodyDefinition(title: () => string): DocumentPreviewDefinit
     binaryExtensions: VIDEO_EXTENSIONS,
     priority: 'extension',
     title,
-    loading: 'bytes-complete',
+    loading: 'url',
     wrap: false,
   }
 }

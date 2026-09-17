@@ -9,19 +9,21 @@
 harness 可预览 Markdown、代码、图片、PDF、HTML 和纯文本。视频容器被有意留在预览 owner 的不可预览列表中，因此 `.mp4` 只会显示「暂不支持预览此文件类型」。本插件通过 harness 公开的文档预览扩展点注册一个 `video` 渲染器：
 
 - **认领的后缀** —— `mp4`、`m4v`、`mov`、`webm`、`ogv`。
-- **内容模式** —— `bytes-complete`：文件以完整字节送达，与内置的图片、PDF、HTML 渲染器完全一致，随后转成 Blob URL。
+- **内容模式** —— `url`：插件完全不读取。渲染器从标准的资源元数据取得文件绝对路径，让播放器指向 Host 的 `/api/file` 路由，该路由按范围应答请求。因此产出文件从不进入 Remote 载荷，其大小既不受 Host 的整文件字节上限限制，也不受浏览器内存限制；播放无需等整段传输结束，拖动进度也无需完整下载。
 - **播放器** —— 浏览器自带的 `<video controls>`，按面板宽度显示。拖动进度、音量、全屏和画中画都由浏览器提供；插件不添加任何播放器界面。
-- **编码** —— 解码由浏览器负责。它无法解码的容器或编码只用一行失败提示替换播放器，而不会让读取失败，因为此刻字节已经完整。
+- **编码** —— 解码由浏览器负责。它无法解码的容器或编码只用一行失败提示替换播放器。
 - **没有纯文本兜底** —— 每个认领的后缀都声明为二进制，因此查看器菜单保持隐藏，文件也绝不会按文本打开。
 
 ## 前提
 
-- 一个组合中包含 `@deepseek-ai/dsh-client-ui-sidebar-documentpreview` 的 DeepSeek Harness 部署（随包发布的 `dsh-web-app` bundle 已包含）。
+- 一个组合中包含 `@deepseek-ai/dsh-client-ui-sidebar-documentpreview` 的 DeepSeek Harness 部署（随包发布的 `dsh-web-app` bundle 已包含），**并且**其文档预览支持 `url` 加载模式，其中 `/api/file` 同时支持 `Range`。
 - 能解码该文件的浏览器。H.264/AAC 的 MP4 在 Chrome、Edge 和 Safari 中可播放；VP8/VP9 的 WebM 在包括 Playwright 所带受限编码版本在内的所有 Chromium 构建中都可播放。
+
+在尚不支持 `url` 模式的 harness 上，渲染器仍会绘制并仍指向该路由，但预览 owner 会先按自己的字节上限读取整个文件，因此只有该上限以内的文件能播放。本插件 0.1.0 完全依赖完整字节；0.2.0 起改为流式。
 
 ## 安装
 
-插件尚未发布，直接从 Git 装进运行 Web UI 的 profile。
+直接从 Git 装进运行 Web UI 的 profile。
 
 1. 把包装进部署的 web profile：
 
@@ -55,19 +57,18 @@ harness 可预览 Markdown、代码、图片、PDF、HTML 和纯文本。视频�
 | 步骤 | API |
 | --- | --- |
 | 等待预览 owner | `inject = ['documentPreviews', 'slots', 'locale']` |
-| 认领后缀 | `ctx.documentPreviews.register({ id, extensions, binaryExtensions, priority: 'extension', title, loading: 'bytes-complete', wrap: false })` |
+| 认领后缀 | `ctx.documentPreviews.register({ id, extensions, binaryExtensions, priority: 'extension', title, loading: 'url', wrap: false })` |
 | 渲染正文 | `ctx.slots.register({ name: 'sidebar.right.tab.document', key: id, locale: 'sidebarVideo' }, VideoBody)` |
 | 持有副作用 | 每次注册都包在 `ctx.effect(...)` 中 |
 
-插件不运行时 import 任何 harness 包：浏览器 bundle 把 `react` 与 `react/jsx-runtime` 保留为请求，由 shell 的共享模块表应答；同时 `dsh.client.inject` 指明文档预览包，使它的 bundle 先被加载。
+`url` 渲染器不接收任何内容：它解析 `useResource(resourceAddress).value.absolutePath`，在提供服务的源上构造 `/api/file?path=…`，随后由浏览器按范围流式读取。插件不运行时 import 任何 harness 包：浏览器 bundle 把 `react` 与 `react/jsx-runtime` 保留为请求，由 shell 的共享模块表应答；同时 `dsh.client.inject` 指明文档预览包，使它的 bundle 先被加载。
 
 如果打过补丁的 harness 自带的内置视频渲染器也在，它以另一个 id 注册在 `builtin` 档位，因此本插件在工具栏中胜出；只有两者都安装时才会同时出现两个候选。移除其中之一即可去掉重复项。
 
 ## 已知限制
 
-- **整文件读取。** 渲染器使用 owner 的 `bytes-complete` 模式，所以视频必须不超过 Host 的 `maxFileBytes` 上限（默认 32 MiB）。它不使用分段请求；拖动进度可用，是因为整个文件已在 Blob 中。
-- **不记忆播放位置。** 重新载入或重新挂载文档会回到开头，与文本滚动不同。
-- **并非所有容器。** 未认领 `avi`、`mkv`、`flv` 和 `wmv`，因为 Chromium、Firefox 和 Safari 都无法独立解码它们。只有在文件的编码确实受浏览器支持时，才在 `src/client/index.ts` 中添加后缀。
+- **并非所有容器。** 未认领 `avi`、`mkv`、`flv` 和 `wmv`，因为 Chromium、Firefox 和 Safari 都无法独立解码它们。只有在文件的编码确实受浏览器支持时，才在 `src/client/suffix.ts` 中添加后缀。
+- **不记忆播放位置，也没有换行与重新载入。** 流式 tab 不保留任何视图状态：重新载入或重新挂载文档会回到开头，工具栏既不提供换行开关，也不提供重新载入控件。
 - **没有字幕、章节或原生播放器之外的倍速界面。**
 
 ## 开发

@@ -1,7 +1,7 @@
 {
   "name": "dsh-video-preview",
-  "version": "0.1.0",
-  "description": "Video previews for the DeepSeek Harness right-Sidebar document viewer: mp4, m4v, mov, webm, and ogv files play in place",
+  "version": "0.2.0",
+  "description": "Video previews for the DeepSeek Harness right-Sidebar document viewer: mp4, m4v, mov, webm, and ogv stream in place from the Host file route",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",

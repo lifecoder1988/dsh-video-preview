@@ -12,11 +12,14 @@ export const zh = {
 /** Video renderer dictionary keys. */
 export type VideoPreviewKey = keyof typeof zh
 
+/** Translate function bound to this renderer's namespace. */
+export type VideoTranslate = (key: VideoPreviewKey, params?: Record<string, unknown>) => string
+
 /** English dictionary with the same keys as the Chinese dictionary. */
 export const en = {
   title: 'Video',
   preview: 'Video preview: {name}',
   loading: 'Reading…',
   failed: 'This video could not be played: the browser does not support its container or codec.',
-  unsupported: 'Video preview requires the complete file contents.',
+  unsupported: 'Video preview requires the file’s complete path.',
 } satisfies Record<VideoPreviewKey, string>

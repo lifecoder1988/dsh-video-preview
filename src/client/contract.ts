@@ -28,8 +28,13 @@ export interface DocumentPreviewDefinition {
   readonly priority?: 'builtin' | 'extension'
   /** Localized implementation label, evaluated when the toolbar renders. */
   readonly title: () => string
-  /** How the owner delivers content to this renderer. */
-  readonly loading: 'text-pages' | 'bytes-complete'
+  /**
+   * How the owner delivers content to this renderer. `url` reads nothing: the
+   * owner renders the body at once with `{ kind: 'url' }` and the renderer
+   * streams the file through the Host's ranged `/api/file` route, so its size
+   * is bounded by neither `maxFileBytes` nor browser memory.
+   */
+  readonly loading: 'text-pages' | 'bytes-complete' | 'url'
   /** Whether this renderer consumes the document's wrap preference. */
   readonly wrap?: boolean
 }

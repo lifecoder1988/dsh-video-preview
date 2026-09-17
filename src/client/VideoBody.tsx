@@ -1,41 +1,31 @@
 /**
- * The video renderer body: complete file bytes played by the browser's own
- * player, sized to the document pane.
+ * The video renderer body: the file streams from the Host's own file route into
+ * the browser's player, sized to the document pane.
  *
- * Playback support belongs to the browser's decoder. A container or codec it
- * cannot decode fails the player rather than the read — the bytes were already
- * complete — and the failure line replaces the player.
+ * The renderer reads nothing. It addresses the file and the browser issues ranged
+ * requests, so a file of any size plays with bounded memory and seeks without a
+ * whole-file transfer. Playback support belongs to the browser's decoder: a
+ * container or codec it cannot decode fails the player, and the failure line
+ * replaces it.
  */
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { fileNameOf, filePathOf } from './path.ts'
-import type { VideoPreviewKey } from './locales.ts'
+import { isPlayableVideo } from './suffix.ts'
+import type { VideoTranslate } from './locales.ts'
 
-/** Container suffixes a browser decodes from a Blob URL, with the media type its Blob carries. */
-const VIDEO_MEDIA_TYPES = {
-  mp4: 'video/mp4',
-  m4v: 'video/mp4',
-  mov: 'video/quicktime',
-  webm: 'video/webm',
-  ogv: 'video/ogg',
-} as const
+/** Live observation of one `file` resource address, as the slot provides it. */
+export type UseFileResource = (address: string) => {
+  readonly status: 'none' | 'loading' | 'live' | 'failed'
+  readonly value: { readonly absolutePath: string } | undefined
+  readonly failure: unknown
+}
 
-/** Media type this renderer assigns to a supported filename's Blob. */
-export type VideoMediaType = typeof VIDEO_MEDIA_TYPES[keyof typeof VIDEO_MEDIA_TYPES]
-
-/** Contents prepared by the preview owner; byte arrays are transient UI input. */
-export type DocumentContent =
-  | { readonly kind: 'text' }
-  | { readonly kind: 'bytes'; readonly data: Uint8Array<ArrayBuffer> }
-
-/** Translate function bound to this renderer's namespace. */
-export type VideoTranslate = (key: VideoPreviewKey, params?: Record<string, unknown>) => string
-
-/** The preview owner's props this renderer reads. */
+/** The preview owner's props this renderer reads; every other prop is ignored. */
 export interface VideoBodyProps {
-  /** Prepared content: complete bytes, or text the renderer refuses. */
-  readonly content: DocumentContent
-  /** Original file address, also readable through the owner's resource hook. */
+  /** Original file address, carrying the session and workspace path. */
   readonly resourceAddress: string
+  /** Standard resource hook, carrying the absolute path the file route needs. */
+  readonly useResource: UseFileResource
   /** Namespace-bound translate for status lines and accessible names. */
   readonly t: VideoTranslate
 }
@@ -78,74 +68,53 @@ const STATUS: CSSProperties = {
   whiteSpace: 'normal',
 }
 
-type VideoSource =
-  | {
-    readonly kind: 'ready'
-    readonly data: Uint8Array<ArrayBuffer>
-    readonly mediaType: VideoMediaType
-    readonly url: string
-  }
-  | { readonly kind: 'failed'; readonly data: Uint8Array<ArrayBuffer>; readonly mediaType: VideoMediaType }
-
 /**
- * Resolve a supported filename to the media type assigned to its Blob.
- * @param path - decoded workspace file path.
- * @returns the video media type, or undefined for an unregistered suffix.
+ * Same-origin URL serving one Host file, which the browser streams by range.
+ *
+ * The preview is always served by the Host over HTTP(S); a document opened under
+ * any other protocol (a `file:` page) cannot address the route, so the relative
+ * path is returned there and the player reports its own failure.
+ * @param absolutePath - the file's absolute path in the execution world.
+ * @param location - page location supplying the origin, injected for tests.
+ * @returns the file-route URL for that path.
  */
-export function videoMediaType(path: string): VideoMediaType | undefined {
-  const name = fileNameOf(path).toLowerCase()
-  const extension = name.slice(name.lastIndexOf('.') + 1) as keyof typeof VIDEO_MEDIA_TYPES
-  return VIDEO_MEDIA_TYPES[extension]
+export function fileRouteUrl(
+  absolutePath: string,
+  location: Pick<Location, 'protocol' | 'origin'>,
+): string {
+  const path = `/api/file?path=${encodeURIComponent(absolutePath)}`
+  return location.protocol === 'http:' || location.protocol === 'https:' ? `${location.origin}${path}` : path
 }
 
 /**
- * Play complete video bytes through the browser's native player.
- * @param props - prepared content, file address, and copy.
- * @returns the player in a full-width frame, or the status that replaces it.
+ * Stream a video file from the Host's route through the browser's player.
+ * @param props - the file address, the standard resource hook, and copy.
+ * @returns the player inside a full-width frame, or the state that replaces it.
  */
-export function VideoBody({ content, resourceAddress, t }: VideoBodyProps): ReactNode {
+export function VideoBody({ resourceAddress, useResource, t }: VideoBodyProps): ReactNode {
   const path = useMemo(() => filePathOf(resourceAddress), [resourceAddress])
-  const mediaType = videoMediaType(path)
-  const data = content.kind === 'bytes' ? content.data : undefined
-  const [source, setSource] = useState<VideoSource>()
-  const [playback, setPlayback] = useState<'pending' | 'failed'>('pending')
+  const absolutePath = useResource(resourceAddress).value?.absolutePath
+  // The failure belongs to the file that failed, so addressing another file
+  // restarts playback instead of inheriting this one's failure line.
+  const [failedPath, setFailedPath] = useState<string>()
 
-  useEffect(() => {
-    if (data === undefined || mediaType === undefined) return
-    let url: string | undefined
-    setPlayback('pending')
-    try {
-      url = URL.createObjectURL(new Blob([data], { type: mediaType }))
-      setSource({ kind: 'ready', data, mediaType, url })
-    } catch {
-      setSource({ kind: 'failed', data, mediaType })
-    }
-    return () => {
-      if (url !== undefined) URL.revokeObjectURL(url)
-    }
-  }, [data, mediaType])
-
-  if (data === undefined || mediaType === undefined) {
-    return <p style={STATUS} role="alert">{t('unsupported')}</p>
-  }
-  if (source?.data !== data || source.mediaType !== mediaType) {
-    return <p style={STATUS} role="status">{t('loading')}</p>
-  }
-  if (source.kind === 'failed' || playback === 'failed') {
-    return <p style={STATUS} role="alert">{t('failed')}</p>
-  }
-  return (
-    <div style={FRAME} data-video-preview>
-      <video
-        style={PLAYER}
-        src={source.url}
-        controls
-        playsInline
-        preload="metadata"
-        aria-label={t('preview', { name: fileNameOf(path) })}
-        data-video-player
-        onError={() => { setPlayback('failed') }}
-      />
-    </div>
-  )
+  if (!isPlayableVideo(path)) return <p style={STATUS} role="alert">{t('unsupported')}</p>
+  // The route needs the execution world's absolute path, which arrives with the
+  // file resource's first observation frame.
+  if (absolutePath === undefined) return <p style={STATUS} role="status" aria-label={t('loading')} data-video-loading />
+  if (failedPath === absolutePath) return <p style={STATUS} role="alert">{t('failed')}</p>
+  return <div style={FRAME} data-video-preview>
+    <video
+      // A different file gets a fresh element rather than the failed one's state.
+      key={absolutePath}
+      style={PLAYER}
+      src={fileRouteUrl(absolutePath, window.location)}
+      controls
+      playsInline
+      preload="metadata"
+      aria-label={t('preview', { name: fileNameOf(path) })}
+      data-video-player
+      onError={() => { setFailedPath(absolutePath) }}
+    />
+  </div>
 }

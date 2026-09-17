@@ -1,19 +1,19 @@
-/** The renderer registration: metadata, keyed body, dictionary, and disposal. */
+/** The renderer registration: metadata, keyed body, dictionary, suffix claim, and disposal. */
 import { describe, expect, it, vi } from 'vitest'
 import { VideoBody } from '../src/client/VideoBody.tsx'
 import {
   apply,
   inject,
   VIDEO_BODY_ID,
-  VIDEO_EXTENSIONS,
   VIDEO_LOCALE_NAMESPACE,
   videoBodyDefinition,
 } from '../src/client/index.ts'
 import { en, zh } from '../src/client/locales.ts'
+import { isPlayableVideo, VIDEO_EXTENSIONS } from '../src/client/suffix.ts'
 import { fakeClientHost } from './fake-context.ts'
 
 describe('videoBodyDefinition', () => {
-  it('claims playable container suffixes as an extension renderer of complete bytes without wrap', () => {
+  it('claims playable container suffixes as an extension streaming renderer without wrap', () => {
     const title = vi.fn(() => 'localized video')
     const definition = videoBodyDefinition(title)
     expect(definition).toEqual({
@@ -22,11 +22,20 @@ describe('videoBodyDefinition', () => {
       binaryExtensions: VIDEO_EXTENSIONS,
       priority: 'extension',
       title,
-      loading: 'bytes-complete',
+      loading: 'url',
       wrap: false,
     })
     expect(title).not.toHaveBeenCalled()
     expect(definition.title()).toBe('localized video')
+  })
+
+  it('matches only the claimed suffixes, in any case and on either separator', () => {
+    for (const extension of VIDEO_EXTENSIONS) {
+      expect(isPlayableVideo(`folder/CLIP.${extension.toUpperCase()}`)).toBe(true)
+    }
+    expect(isPlayableVideo('folder\\nested\\clip.webm')).toBe(true)
+    expect(isPlayableVideo('folder/clip.mkv')).toBe(false)
+    expect(isPlayableVideo('folder/clip')).toBe(false)
   })
 })
 

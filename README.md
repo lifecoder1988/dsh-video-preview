@@ -9,19 +9,21 @@ Video previews for the [DeepSeek Harness](https://github.com/deepseek-ai/deepsee
 The harness previews Markdown, code, images, PDF, HTML, and plain text. Video containers are deliberately left in the preview owner's unviewable list, so a `.mp4` shows only "Preview is not available for this file type yet". This plugin registers a `video` renderer through the harness's public document-preview extension points:
 
 - **Claimed suffixes** — `mp4`, `m4v`, `mov`, `webm`, `ogv`.
-- **Content mode** — `bytes-complete`: the file arrives as complete bytes, exactly like the built-in image, PDF, and HTML renderers, then becomes a Blob URL.
+- **Content mode** — `url`: the plugin reads nothing. The renderer resolves the file's absolute path from the standard resource metadata and points the player at the Host's `/api/file` route, which answers ranged requests. A produced file therefore never enters the Remote payload and is bounded by neither the Host's whole-file byte cap nor browser memory; playback starts before the transfer ends and seeking needs no full download.
 - **Player** — the browser's own `<video controls>`, sized to the pane width. Seeking, volume, fullscreen, and picture-in-picture are the browser's; the plugin adds no player chrome.
-- **Codecs** — decoding belongs to the browser. A container or codec it cannot decode replaces the player with one failure line rather than failing the read, because the bytes were already complete.
+- **Codecs** — decoding belongs to the browser. A container or codec it cannot decode replaces the player with one failure line.
 - **No plain-text fallback** — every claimed suffix is declared binary, so the viewer menu stays hidden and the file never opens as text.
 
 ## Requirements
 
-- A DeepSeek Harness deployment whose composition includes `@deepseek-ai/dsh-client-ui-sidebar-documentpreview` (the shipped `dsh-web-app` bundle does).
+- A DeepSeek Harness deployment whose composition includes `@deepseek-ai/dsh-client-ui-sidebar-documentpreview` (the shipped `dsh-web-app` bundle does) **and** whose document preview supports the `url` load mode, where `/api/file` also honors `Range`.
 - A browser that decodes the file. H.264/AAC MP4 plays in Chrome, Edge, and Safari; VP8/VP9 WebM plays in every Chromium build, including the codec-restricted one Playwright ships.
+
+On a harness that predates the `url` mode, the renderer still draws and still addresses the route, but the preview owner reads the whole file first under its own byte cap, so only files within that cap play. Version 0.1.0 of this plugin required complete bytes outright; 0.2.0 and later stream.
 
 ## Install
 
-The plugin is unpublished; install it straight from Git into the profile that runs your web UI.
+Install it straight from Git into the profile that runs your web UI.
 
 1. Install the package into the deployment's web profile:
 
@@ -55,19 +57,18 @@ The plugin uses the two extension points the document-preview package publishes,
 | Step | API |
 | --- | --- |
 | Wait for the preview owner | `inject = ['documentPreviews', 'slots', 'locale']` |
-| Claim the suffixes | `ctx.documentPreviews.register({ id, extensions, binaryExtensions, priority: 'extension', title, loading: 'bytes-complete', wrap: false })` |
+| Claim the suffixes | `ctx.documentPreviews.register({ id, extensions, binaryExtensions, priority: 'extension', title, loading: 'url', wrap: false })` |
 | Render the body | `ctx.slots.register({ name: 'sidebar.right.tab.document', key: id, locale: 'sidebarVideo' }, VideoBody)` |
 | Own the side effects | `ctx.effect(...)` around each registration |
 
-The plugin carries no runtime import of any harness package: the browser bundle keeps `react` and `react/jsx-runtime` as requests the shell's shared module table answers, which pairs with `dsh.client.inject` naming the document-preview package so its bundle is loaded first.
+A `url` renderer receives no content: it resolves `useResource(resourceAddress).value.absolutePath` and builds `/api/file?path=…` on the serving origin, which the browser then streams by range. The plugin carries no runtime import of any harness package: the browser bundle keeps `react` and `react/jsx-runtime` as requests the shell's shared module table answers, which pairs with `dsh.client.inject` naming the document-preview package so its bundle is loaded first.
 
 If the in-tree video renderer from a patched harness is also present, it registers under a different id at the `builtin` band, so this plugin wins the toolbar and both appear as candidates only when the built-in is installed too. Removing one of the two removes the duplicate entry.
 
 ## Limitations
 
-- **Whole-file reads.** The renderer uses the owner's `bytes-complete` mode, so a video must fit the Host's `maxFileBytes` cap (32 MiB by default). Range requests are not used; seeking works because the whole file is already in the Blob.
-- **No playback position memory.** Reloading or remounting the document returns to the start, unlike text scroll.
-- **Not every container.** `avi`, `mkv`, `flv`, and `wmv` are not claimed, because Chromium, Firefox, and Safari do not decode them unaided. Add suffixes in `src/client/index.ts` only when the file's codec is one browsers actually support.
+- **Not every container.** `avi`, `mkv`, `flv`, and `wmv` are not claimed, because Chromium, Firefox, and Safari do not decode them unaided. Add suffixes in `src/client/suffix.ts` only when the file's codec is one browsers actually support.
+- **No playback memory, no wrap, no reload.** A streaming tab keeps no view state: reloading or remounting the document returns to the start, and the toolbar offers neither a wrap toggle nor a reload control.
 - **No subtitles, chapters, or playback speed UI** beyond what the native player offers.
 
 ## Development
