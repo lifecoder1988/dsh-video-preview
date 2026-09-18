@@ -10,7 +10,7 @@ The harness previews Markdown, code, images, PDF, HTML, and plain text. Video co
 
 - **Claimed suffixes** — `mp4`, `m4v`, `mov`, `webm`, `ogv`.
 - **Content mode** — `url`: the plugin reads nothing. The renderer resolves the file's absolute path from the standard resource metadata and points the player at the Host's `/api/file` route, which answers ranged requests. A produced file therefore never enters the Remote payload and is bounded by neither the Host's whole-file byte cap nor browser memory; playback starts before the transfer ends and seeking needs no full download.
-- **Player** — the browser's own `<video controls>`, sized to the pane width. Seeking, volume, fullscreen, and picture-in-picture are the browser's; the plugin adds no player chrome.
+- **Player** — the browser's own `<video controls>`, fitted inside the pane: a portrait clip is bounded by the pane's height, a wide one by its width, and neither is ever enlarged past its intrinsic size, so the preview body never gains a scrollbar. Seeking, volume, fullscreen, and picture-in-picture are the browser's; the plugin adds no player chrome.
 - **Codecs** — decoding belongs to the browser. A container or codec it cannot decode replaces the player with one failure line.
 - **No plain-text fallback** — every claimed suffix is declared binary, so the viewer menu stays hidden and the file never opens as text.
 
